@@ -3,38 +3,73 @@
 // Function to scrape a single article
 function aas_scrape_single_article($url)
 {
-    // Fetch the content
     $response = wp_remote_get($url);
-
     if (is_wp_error($response)) {
         return false;
     }
 
     $html = wp_remote_retrieve_body($response);
-
     if (empty($html)) {
         return false;
     }
 
-    // Use DOMDocument to scrape the article
     libxml_use_internal_errors(true);
     $dom = new DOMDocument();
     @$dom->loadHTML(mb_convert_encoding($html, 'HTML-ENTITIES', 'UTF-8'));
     libxml_clear_errors();
 
+    // Remove header, footer, nav, and aside
+    $tagsToRemove = ['header', 'footer', 'nav', 'aside'];
+    foreach ($tagsToRemove as $tag) {
+        $elements = $dom->getElementsByTagName($tag);
+        while ($elements->length > 0) {
+            $element = $elements->item(0);
+            $element->parentNode->removeChild($element);
+        }
+    }
+
     // Get the title
     $titleNodes = $dom->getElementsByTagName('title');
     $title = ($titleNodes->length > 0) ? $titleNodes->item(0)->nodeValue : 'No Title Found';
 
-    // Get the content
-    $body = $dom->getElementsByTagName('body');
-    $content = ($body->length > 0) ? $dom->saveHTML($body->item(0)) : '';
+    // XPath to find the article content
+    $xpath = new DOMXPath($dom);
+    $contentNode = null;
 
-    if (empty(trim($content))) {
+    // Try <article> tag
+    $nodes = $xpath->query('//article');
+    if ($nodes->length > 0) {
+        $contentNode = $nodes->item(0);
+    }
+
+    // Try <main> tag
+    if (!$contentNode) {
+        $nodes = $xpath->query('//main');
+        if ($nodes->length > 0) {
+            $contentNode = $nodes->item(0);
+        }
+    }
+
+    // Try biggest <div> with most text
+    if (!$contentNode) {
+        $divs = $xpath->query('//div');
+        $maxTextLength = 0;
+        foreach ($divs as $div) {
+            $text = trim($div->textContent);
+            if (strlen($text) > $maxTextLength) {
+                $maxTextLength = strlen($text);
+                $contentNode = $div;
+            }
+        }
+    }
+
+    if (!$contentNode) {
         return false;
     }
 
-    // Insert post as a draft
+    $content = $dom->saveHTML($contentNode);
+
+    // Save as draft post
     $post_data = [
         'post_title'   => wp_strip_all_tags($title),
         'post_content' => $content,
@@ -44,9 +79,5 @@ function aas_scrape_single_article($url)
 
     $post_id = wp_insert_post($post_data);
 
-    if (!is_wp_error($post_id)) {
-        return $post_id;
-    }
-
-    return false;
+    return (!is_wp_error($post_id)) ? $post_id : false;
 }
