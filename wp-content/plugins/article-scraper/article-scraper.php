@@ -59,7 +59,7 @@ function aas_article_scraper_page()
     <?php
 }
 
-// Scraper logic
+// Scraper function
 function aas_scrape_single_article($url, $selector = null)
 {
     $response = wp_remote_get($url);
@@ -92,7 +92,7 @@ function aas_scrape_single_article($url, $selector = null)
     $xpath = new DOMXPath($dom);
     $contentNode = null;
 
-    // Use custom selector if provided
+    // Custom selector logic
     if ($selector) {
         $selector = trim($selector);
         if (strpos($selector, '#') === 0) {
@@ -110,7 +110,7 @@ function aas_scrape_single_article($url, $selector = null)
         }
     }
 
-    // Fallback: article > main > largest div
+    // Fallback options
     if (!$contentNode) {
         foreach (['article', 'main'] as $tag) {
             $nodes = $xpath->query("//{$tag}");
@@ -146,6 +146,21 @@ function aas_scrape_single_article($url, $selector = null)
     ];
 
     $post_id = wp_insert_post($post_data);
-    return (!is_wp_error($post_id)) ? $post_id : false;
+
+    if (!is_wp_error($post_id)) {
+        // Email notification
+        $admin_email = get_option('admin_email');
+        $subject = 'New Article Scraped and Saved as Draft';
+        $message = "A new article has been saved as a draft on your Website.\n\n";
+        $message .= 'Title: ' . $post_data['post_title'] . "\n";
+        $message .= 'Original URL: ' . $url . "\n";
+        $message .= 'Edit Post: ' . get_edit_post_link($post_id) . "\n";
+
+        wp_mail($admin_email, $subject, $message);
+
+        return $post_id;
+    }
+
+    return false;
 }
 ?>
