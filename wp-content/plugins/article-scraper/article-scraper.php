@@ -1,13 +1,13 @@
 <?php
 /*
 Plugin Name: Article Scraper
-Description: Scrapes a URL at a user‑defined minute interval and saves it as a draft. Also provides a shortcode to output scraped data on the front end.
-Version:     1.3
-Author:      fk
+Description: Scrapes articles from a URL and saves them as drafts in WordPress with interval-based scheduling.
+Version: 1.1
+Author: fk
 */
 
-// ── 1) Register the admin menu page ───────────────────────────────────────
-add_action('admin_menu', function() {
+// Register admin menu
+add_action('admin_menu', function () {
     add_menu_page(
         'Article Scraper',
         'Article Scraper',
@@ -19,149 +19,104 @@ add_action('admin_menu', function() {
     );
 });
 
-// ── 2) Render the settings & manual‑fetch form ────────────────────────────
-function aas_article_scraper_page() {
-    $url      = get_option('aas_url', '');
-    $selector = get_option('aas_selector', '');
-    $mins     = intval(get_option('aas_interval_minutes', 60));
-
-    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-        if (isset($_POST['aas_save_settings'])) {
-            $new_url      = esc_url_raw($_POST['aas_url']);
-            $new_selector = sanitize_text_field($_POST['aas_selector']);
-            $new_mins     = max(1, intval($_POST['aas_interval_minutes']));
-
-            update_option('aas_url', $new_url);
-            update_option('aas_selector', $new_selector);
-            update_option('aas_interval_minutes', $new_mins);
-
-            aas_reschedule_scraper_event();
-
-            echo '<div class="notice notice-success is-dismissible">'
-               . '<p>Settings saved. Next run in ' . esc_html($new_mins) . ' minute(s).</p>'
-               . '</div>';
-
-            $url      = $new_url;
-            $selector = $new_selector;
-            $mins     = $new_mins;
-        }
-        if (isset($_POST['aas_scrape_now'])) {
-            $post_id = aas_scrape_single_article($url, $selector);
-            if ($post_id) {
-                echo '<div class="notice notice-success is-dismissible">'
-                   . '<p>Fetched and created draft! <a href="' . get_edit_post_link($post_id) . '">Edit it</a>.</p>'
-                   . '</div>';
-            } else {
-                echo '<div class="notice notice-error is-dismissible">'
-                   . '<p>Scrape failed. Check URL/selector.</p>'
-                   . '</div>';
-            }
-        }
-    }
-
+// Admin page callback
+function aas_article_scraper_page()
+{
     ?>
     <div class="wrap">
-      <h1>Article Scraper Settings</h1>
-      <form method="post">
-        <table class="form-table">
-          <tr>
-            <th scope="row">Article URL</th>
-            <td>
-              <input type="url" name="aas_url" value="<?php echo esc_attr($url); ?>"
-                     style="width:400px" required />
-            </td>
-          </tr>
-          <tr>
-            <th scope="row">Content Selector (optional)</th>
-            <td>
-              <input type="text" name="aas_selector" value="<?php echo esc_attr($selector); ?>"
-                     placeholder=".post-content or #main" style="width:400px" />
-            </td>
-          </tr>
-          <tr>
-            <th scope="row">Fetch Every (minutes)</th>
-            <td>
-              <input type="number" name="aas_interval_minutes"
-                     value="<?php echo esc_attr($mins); ?>"
-                     min="1" style="width:100px" /> minutes
-            </td>
-          </tr>
-        </table>
-        <?php submit_button('Save Settings', 'primary', 'aas_save_settings'); ?>
-        <?php submit_button('Fetch Now', 'secondary', 'aas_scrape_now'); ?>
-      </form>
+        <h1>Article Scraper</h1>
+
+        <?php
+        // Display success or error messages for manual scraping
+        if (isset($_POST['aas_scrape_url']) && !empty($_POST['aas_scrape_url'])) {
+            $url = esc_url_raw($_POST['aas_scrape_url']);
+            $selector = !empty($_POST['aas_selector']) ? sanitize_text_field($_POST['aas_selector']) : null;
+
+            $post_id = aas_scrape_single_article($url, $selector);
+
+            if ($post_id) {
+                $post_url = get_edit_post_link($post_id);
+                echo '<div class="notice notice-success is-dismissible">
+                        <p><strong>Success:</strong> Article was successfully scraped and saved as a draft! 
+                        <a href="' . esc_url($post_url) . '" target="_blank">Edit Draft</a></p>
+                      </div>';
+            } else {
+                echo '<div class="notice notice-error is-dismissible">
+                        <p><strong>Error:</strong> Could not scrape the article. This may be due to:</p>
+                        <ul style="padding-left: 20px; list-style: disc;">
+                            <li>Invalid or unreachable URL</li>
+                            <li>The selector you entered doesn’t match any content</li>
+                            <li>The target website may be blocking bots</li>
+                        </ul>
+                      </div>';
+            }
+        }
+
+        // Handle settings form submission
+        if (isset($_POST['aas_save_settings'])) {
+            $interval = isset($_POST['aas_interval']) ? intval($_POST['aas_interval']) : 0;
+            $url = isset($_POST['aas_url']) ? esc_url_raw($_POST['aas_url']) : '';
+            $selector = isset($_POST['aas_selector']) ? sanitize_text_field($_POST['aas_selector']) : '';
+
+            if ($interval >= 1 && $url) {
+                update_option('aas_scrape_interval', $interval);
+                update_option('aas_scrape_url', $url);
+                update_option('aas_scrape_selector', $selector);
+                aas_reschedule_scraper_event();
+                echo '<div class="notice notice-success is-dismissible"><p>Scraping interval set to ' . $interval . ' minute(s). The URL and selector have been updated.</p></div>';
+            } else {
+                echo '<div class="notice notice-error is-dismissible"><p>Interval must be at least 1 minute, and URL must be provided.</p></div>';
+            }
+        }
+
+        $interval = get_option('aas_scrape_interval', 0);
+        $url = get_option('aas_scrape_url', '');
+        $selector = get_option('aas_scrape_selector', '');
+        ?>
+
+        <h2>Settings</h2>
+        <form method="post">
+            <table class="form-table">
+                <tr>
+                    <th>Scraping Interval (minutes)</th>
+                    <td><input type="number" name="aas_interval" value="<?php echo esc_attr($interval); ?>" min="1" required style="width: 100px;"></td>
+                </tr>
+                <tr>
+                    <th>Article URL</th>
+                    <td><input type="url" name="aas_url" value="<?php echo esc_attr($url); ?>" required style="width: 400px;"></td>
+                </tr>
+                <tr>
+                    <th>Content Selector (optional)</th>
+                    <td><input type="text" name="aas_selector" value="<?php echo esc_attr($selector); ?>" placeholder=".post-content or #main" style="width: 400px;"></td>
+                </tr>
+            </table>
+            <?php submit_button('Save Settings', 'primary', 'aas_save_settings'); ?>
+        </form>
+
+        <h2>Manual Scrape</h2>
+        <form method="post">
+            <table class="form-table">
+                <tr>
+                    <th>Article URL</th>
+                    <td><input type="url" name="aas_scrape_url" required style="width: 400px;"></td>
+                </tr>
+                <tr>
+                    <th>Content Selector (optional)</th>
+                    <td><input type="text" name="aas_selector" placeholder=".post-content or #main" style="width: 400px;"></td>
+                </tr>
+            </table>
+            <?php submit_button('Fetch Article'); ?>
+        </form>
     </div>
     <?php
 }
 
-// ── 3) Dynamic Cron Schedule ──────────────────────────────────────────────
-add_filter('cron_schedules', function($schedules) {
-    $mins = max(1, intval(get_option('aas_interval_minutes', 60)));
-    $secs = $mins * MINUTE_IN_SECONDS;
-    $schedules['aas_user_minute_interval'] = [
-        'interval' => $secs,
-        'display'  => sprintf('Every %d minute(s)', $mins),
-    ];
-    return $schedules;
-});
-
-// ── 4) Activation & Deactivation ─────────────────────────────────────────
-register_activation_hook(__FILE__, 'aas_activate');
-function aas_activate() {
-    if (! get_option('aas_interval_minutes')) {
-        update_option('aas_interval_minutes', 60);
-    }
-    aas_reschedule_scraper_event();
-}
-register_deactivation_hook(__FILE__, 'aas_deactivate');
-function aas_deactivate() {
-    wp_clear_scheduled_hook('aas_user_minute_interval_event');
-}
-
-// ── 5) Schedule Cron Event ───────────────────────────────────────────────
-function aas_reschedule_scraper_event() {
-    wp_clear_scheduled_hook('aas_user_minute_interval_event');
-    if (! wp_next_scheduled('aas_user_minute_interval_event')) {
-        wp_schedule_event(time(), 'aas_user_minute_interval', 'aas_user_minute_interval_event');
-    }
-}
-
-// ── 6) Cron Hook ─────────────────────────────────────────────────────────
-add_action('aas_user_minute_interval_event', 'aas_run_scheduled_scraper');
-function aas_run_scheduled_scraper() {
-    $url      = get_option('aas_url');
-    $selector = get_option('aas_selector', '');
-    if ($url) {
-        aas_scrape_single_article($url, $selector);
-    }
-}
-
-// ── 7) Scraper & Draft Creator ────────────────────────────────────────────
-function aas_scrape_single_article($url, $selector = null) {
-    $data = aas_get_scraped_data($url, $selector);
-    if (! $data) return false;
-
-    $post_id = wp_insert_post([
-        'post_title'   => wp_strip_all_tags($data['title']),
-        'post_content' => $data['content'],
-        'post_status'  => 'draft',
-        'post_author'  => get_current_user_id(),
-    ]);
-    if (is_wp_error($post_id)) return false;
-
-    wp_mail(
-        get_option('admin_email'),
-        'New Article Scraped',
-        "Title: {$data['title']}\nURL: {$url}\nEdit: " . get_edit_post_link($post_id)
-    );
-
-    return $post_id;
-}
-
-// ── 8) Scraper Utility ────────────────────────────────────────────────────
-function aas_get_scraped_data($url, $selector = null) {
+// Scrape and create article
+function aas_scrape_single_article($url, $selector = null)
+{
     $response = wp_remote_get($url);
     if (is_wp_error($response)) return false;
+
     $html = wp_remote_retrieve_body($response);
     if (empty($html)) return false;
 
@@ -170,60 +125,118 @@ function aas_get_scraped_data($url, $selector = null) {
     @$dom->loadHTML(mb_convert_encoding($html, 'HTML-ENTITIES', 'UTF-8'));
     libxml_clear_errors();
 
-    foreach (['header','footer','nav','aside'] as $tag) {
-        $els = $dom->getElementsByTagName($tag);
-        while ($els->length) {
-            $els->item(0)->parentNode->removeChild($els->item(0));
-        }
-    }
-
+    // Get title
     $title = 'No Title Found';
-    $tNodes = $dom->getElementsByTagName('title'); if ($tNodes->length) {
-        $title = $tNodes->item(0)->nodeValue;
+    $titleNodes = $dom->getElementsByTagName('title');
+    if ($titleNodes->length > 0) {
+        $title = $titleNodes->item(0)->nodeValue;
     }
 
     $xpath = new DOMXPath($dom);
     $contentNode = null;
-    if ($selector) {
-        $sel = trim($selector);
-        if (strpos($sel,'#')===0) {
-            $nodes = $xpath->query("//*[@id='".substr($sel,1)."']");
-        } elseif (strpos($sel,'.')===0) {
-            $cls = substr($sel,1);
-            $nodes = $xpath->query("//*[contains(concat(' ',normalize-space(@class),' '),' $cls ')]");
-        } else {
-            $nodes = $xpath->query("//{$sel}");
-        }
-        if ($nodes && $nodes->length) $contentNode = $nodes->item(0);
-    }
-    if (! $contentNode) {
-        foreach (['article','main'] as $tag) {
-            $nodes = $xpath->query("//{$tag}");
-            if ($nodes->length) { $contentNode = $nodes->item(0); break; }
-        }
-    }
-    if (! $contentNode) {
-        $divs = $xpath->query('//div'); $max=0;
-        foreach ($divs as $div) {
-            $len = strlen(trim($div->textContent));
-            if ($len>$max) { $max=$len; $contentNode=$div; }
-        }
-    }
-    if (! $contentNode) return false;
 
-    return [
-        'title'   => $title,
-        'content' => $dom->saveHTML($contentNode),
+    // Use selector if given
+    if ($selector) {
+        $selector = trim($selector);
+        if (strpos($selector, '#') === 0) {
+            $id = substr($selector, 1);
+            $nodes = $xpath->query("//*[@id='$id']");
+        } elseif (strpos($selector, '.') === 0) {
+            $class = substr($selector, 1);
+            $nodes = $xpath->query("//*[contains(concat(' ', normalize-space(@class), ' '), ' $class ')]");
+        } else {
+            $nodes = $xpath->query("//" . $selector);
+        }
+
+        if ($nodes->length > 0) {
+            $contentNode = $nodes->item(0);
+        }
+    }
+
+    // Fallback if no selector matched
+    if (!$contentNode) {
+        foreach (['article', 'main'] as $tag) {
+            $nodes = $xpath->query("//{$tag}");
+            if ($nodes->length > 0) {
+                $contentNode = $nodes->item(0);
+                break;
+            }
+        }
+    }
+
+    if (!$contentNode) {
+        $divs = $xpath->query('//div');
+        $maxText = 0;
+        foreach ($divs as $div) {
+            $text = trim($div->textContent);
+            if (strlen($text) > $maxText) {
+                $maxText = strlen($text);
+                $contentNode = $div;
+            }
+        }
+    }
+
+    if (!$contentNode) return false;
+
+    $content = $dom->saveHTML($contentNode);
+
+    $post_data = [
+        'post_title'   => wp_strip_all_tags($title),
+        'post_content' => $content,
+        'post_status'  => 'draft',
+        'post_author'  => get_current_user_id(),
     ];
+
+    $post_id = wp_insert_post($post_data);
+    return (!is_wp_error($post_id)) ? $post_id : false;
 }
 
-// ── 9) Shortcode for Front‑End Display ───────────────────────────────────
-add_shortcode('scrape', 'aas_shortcode_scrape');
-function aas_shortcode_scrape($atts) {
-    $atts = shortcode_atts(['url'=>'','selector'=>''], $atts);
-    if (empty($atts['url'])) return '';
-    $data = aas_get_scraped_data($atts['url'], $atts['selector']);
-    if (! $data) return '';
-    return '<h2>' . esc_html($data['title']) . '</h2>' . $data['content'];
+// Cron job scheduling
+add_action('wp', 'aas_schedule_cron_job');
+function aas_schedule_cron_job()
+{
+    $interval = get_option('aas_scrape_interval', 0);
+    if ($interval >= 1 && !wp_next_scheduled('aas_scrape_cron_event')) {
+        wp_schedule_event(time(), 'every_minute', 'aas_scrape_cron_event');
+    }
+}
+
+// Define custom cron intervals
+add_filter('cron_schedules', 'aas_cron_schedules');
+function aas_cron_schedules($schedules)
+{
+    $schedules['every_minute'] = [
+        'interval' => 60,
+        'display'  => 'Every Minute',
+    ];
+    return $schedules;
+}
+
+// Scheduled scraper
+add_action('aas_scrape_cron_event', 'aas_run_scheduled_scrape');
+function aas_run_scheduled_scrape()
+{
+    $url = get_option('aas_scrape_url', '');
+    $selector = get_option('aas_scrape_selector', '');
+    if ($url) {
+        aas_scrape_single_article($url, $selector);
+    }
+}
+
+// Reschedule on settings update
+function aas_reschedule_scraper_event()
+{
+    wp_clear_scheduled_hook('aas_scrape_cron_event');
+    $interval = get_option('aas_scrape_interval', 0);
+    if ($interval >= 1) {
+        wp_schedule_event(time(), 'every_minute', 'aas_scrape_cron_event');
+    }
+}
+
+// Clear cron on deactivation
+register_deactivation_hook(__FILE__, 'aas_deactivate_cron');
+function aas_deactivate_cron()
+{
+    wp_clear_scheduled_hook('aas_scrape_cron_event');
 }
 ?>
