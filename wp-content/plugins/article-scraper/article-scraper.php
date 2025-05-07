@@ -37,6 +37,12 @@ function aas_article_scraper_page()
                         <p><strong>Success:</strong> Article was successfully scraped and saved as a draft! 
                         <a href="' . esc_url($post_url) . '" target="_blank">Edit Draft</a></p>
                       </div>';
+
+                // Send email notification to the admin
+                $admin_email = get_option('admin_email');
+                $subject = 'New Article Scraped: ' . get_the_title($post_id);
+                $message = 'A new article has been scraped and saved as a draft. You can edit it here: ' . $post_url;
+                wp_mail($admin_email, $subject, $message);
             } else {
                 echo '<div class="notice notice-error is-dismissible">
                         <p><strong>Error:</strong> Could not scrape the article. Possible issues:</p>
